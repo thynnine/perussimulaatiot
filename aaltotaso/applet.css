@@ -1,0 +1,70 @@
+body{ 
+ font-family: Helvetica,Arial,sans-serif; 
+ color: #000000;
+ background-color: #ffffff;
+ line-height: 1.166; 
+ margin: auto; 
+ padding: 0px; 
+ text-align: justify;
+ width: 800px; 
+} 
+h1, h2, h3, h4, h5, h6 { 
+ font-family: Century Gothic,Futura,Helvetica,sans-serif; 
+ margin: 0px; 
+ padding: 5px 0px 5px 20%; 
+ text-shadow: 1px 1px 1px rgba(0,0,0,0.4); 
+ text-align: center;
+} 
+h1{ 
+ font-size: 210%; 
+ padding: 15px 0px 15px 0px; 
+ clear: both; 
+} 
+h2{ 
+ font-size: 140%; 
+ padding: 15px 0px 15px 0px; 
+ clear: both; 
+} 
+img{ 
+  margin: 20px; 
+  padding: 0px; 
+}  
+table{ 
+  padding: 15px;
+  margin: 15px;
+  border-spacing: 10px;
+  text-align: justify;
+}
+td{
+ vertical-align: text-top;
+} 
+
+table#control img{
+  margin: 0px; 
+  padding: 0px; 
+  vertical-align: middle;
+}
+
+table#output img{
+  box-shadow: 0px 5px 10px #888;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+applet#simulation{
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    width: 800px;
+    box-shadow: 0px 10px 20px #888;
+}
+canvas#simulation{
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    width: 800px;
+    box-shadow: 0px 10px 20px #888;
+}

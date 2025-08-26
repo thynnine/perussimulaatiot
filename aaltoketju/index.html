@@ -1,0 +1,331 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html> <head>
+<title>Värähtelevä ketju</title>
+<link rel="icon" href="http://trnm.aalto.fi/figs/aalto_icon.png" type="image/png" />
+
+<link rel="stylesheet" href="applet.css" type="text/css" />
+
+</head>
+<!--
+<script type="text/javascript"
+  src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+-->
+
+<meta charset="utf-8">
+<script type="text/javascript">
+    
+    var height = 450;
+    var width = 800;
+    var margin = 10;
+
+    var can;
+    var cnvs;
+    var fullwave_display;
+    var fullwave;
+    var massmode = 1;
+
+    var timestep = 0.01;
+    var pulling = false;
+    
+    var mouse_position;
+    var mouse_timer = 0;
+    
+    function Display(x,y,w,h) {
+        this.x = x;
+        this.y = y;
+        this.height = h;
+        this.width = w;
+        this.mouse_active = false;
+    
+        this.paintBack = function () { 
+            cnvs.fillStyle = "#FFFFFF";
+
+            cnvs.beginPath();
+            cnvs.rect(this.x, this.y, this.width, this.height);
+            cnvs.fill();
+        };
+
+        this.paintFront = function () { 
+            cnvs.strokeStyle = "#000000";
+
+            cnvs.beginPath();
+            cnvs.rect(this.x, this.y, this.width, this.height);
+            cnvs.lineWidth = 3;
+            cnvs.stroke();
+        };
+        
+        this.coordinatesIn = function (x,y) {
+            var mrgn = 4
+            if(x < this.x+mrgn || x > this.x+this.width-mrgn ||
+               y < this.y+mrgn || y > this.y+this.height-mrgn){
+                return false;
+            }
+            return true;
+        }
+        
+        this.relativeCoordinates = function (x,y) {
+            return {
+                x: (x-(this.x+this.width)/2)/(this.width/2),
+                y: (y-(this.y+this.height)/2)/(this.height/2)
+            };
+        }
+    }
+    
+
+    function getMousePos(evt) {
+        var rect = can.getBoundingClientRect();
+        return {
+          x: evt.pageX - rect.left,
+          y: evt.pageY - 170 + 0*rect.top
+        };
+    }
+    
+    function mouseDown(e){
+        mouse_timer += 100;
+        if(mouse_timer > 200){
+            mouse_timer = 200;
+        }
+        if(mouse_timer > 150){
+            mouse_timer = 0;
+            buttonPress(e);
+        } else {
+        mouse_timer = 100;
+        mouse_position = getMousePos(e);
+        document.onmousemove = mouseMove;
+        document.onmouseup = mouseUp;
+        if(fullwave.display.coordinatesIn(mouse_position.x, mouse_position.y)){
+            fullwave.display.mouse_active = true;
+        }
+        }
+        return false;
+    }
+        
+    function mouseMove(e) {
+        mouse_position = getMousePos(e);        
+    }
+        
+    function mouseUp(e) {
+        fullwave.display.mouse_active = false;
+        document.onmousemove = null;
+        document.onmouseup = null;
+    }
+    
+    function buttonPress(e){
+        if(massmode == 0){
+            massmode = 1;
+            // check for unequal masses
+            for(var i=50; i<100; i++){
+                fullwave.beads[i].m = 1.0;
+                fullwave.beads[i].v *= .447213595;
+            }
+        } else if(massmode == 1){
+            massmode = 2;
+            // check for unequal masses
+            for(var i=50; i<100; i++){
+                fullwave.beads[i].m = 5.0;
+                fullwave.beads[i].v *= .447213595;
+            }
+        } else if(massmode == 2){
+            massmode = 0;
+            // check for unequal masses
+            for(var i=50; i<100; i++){
+                fullwave.beads[i].m = 0.2;
+                fullwave.beads[i].v *= 5.0;
+            }
+        }
+    
+    }
+    
+    function Bead() {
+        this.d = 0.0;
+        this.m = 1.0;
+        this.v = 0.0;
+    }
+
+    function Chain(length,x,y,width) {
+    
+        this.display = null;
+    
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.length = length;
+        this.k = 1.0;
+        this.beads = new Array(length);
+        this.forces = new Array(length);
+        for(var i = 0; i < length; i++){
+            this.beads[i] = new Bead();
+            this.forces[i] = 0.0;
+        }        
+        var bead_d_scaler = 20.0;
+        
+        this.calculate_forces = function () {
+            
+            this.forces[0] = (this.beads[1].d - this.beads[0].d)*this.k;
+            for(var i = 1; i < length-1; i++){
+                this.forces[i] = (this.beads[i-1].d + this.beads[i+1].d - 2.0*this.beads[i].d)*this.k;
+            }
+            //this.forces[length-1] = (this.beads[length-2].d - this.beads[length-1].d)*this.k;
+            this.forces[length-1] = 0.0;
+
+            try{
+                if(this.display.mouse_active){
+                    var pull_d = this.display.relativeCoordinates(mouse_position.x, mouse_position.y).y;
+                    var bead_d = this.display.relativeCoordinates(mouse_position.x, this.y+this.beads[0].d*bead_d_scaler).y;
+                    //document.getElementById("msg").innerHTML=pull_d+" "+bead_d+" "+this.x+" "+this.y+" "+this.beads[0].d; 
+                    this.forces[0] += (pull_d-bead_d)*this.k;       
+                }
+            } catch (err){
+                // no display yet
+            }
+        };
+        
+        this.calculate_forces();
+        
+        this.update = function (dt) {
+            for(var i = 0; i < this.length; i++){
+                var bit = this.beads[i];
+                var a = this.forces[i]/bit.m;
+                bit.d += bit.v*dt + 0.5*a*dt*dt;
+                bit.v += 0.5*a*dt;
+            }
+        
+            this.calculate_forces();
+
+            for(var i = 0; i < this.length; i++){
+                var bit = this.beads[i];
+                var a = this.forces[i]/bit.m;
+                bit.v += 0.5*a*dt;
+            }
+        };
+        
+        this.paint = function () {
+
+            this.display.paintBack();
+            mouse_timer--;
+
+            cnvs.fillStyle = "black";
+            for(var i = 0; i < this.length; i++){
+                if(this.y+this.beads[i].d*bead_d_scaler > margin &&
+                    this.y+this.beads[i].d*bead_d_scaler < height-margin){
+                var radius = 1.8+0.8*this.beads[i].m;
+                cnvs.beginPath();
+                cnvs.arc(this.x+i*this.width/(this.length-1), this.y+this.beads[i].d*bead_d_scaler, radius, 0, 2.0 * Math.PI, false);
+                cnvs.fill();
+                }
+            }
+            
+            if(this.display.mouse_active){
+                if(this.display.coordinatesIn(mouse_position.x,
+                                              mouse_position.y)){
+
+                if(this.y+this.beads[0].d*bead_d_scaler > margin &&
+                    this.y+this.beads[0].d*bead_d_scaler < height-margin){
+                    cnvs.moveTo(this.x,this.y+this.beads[0].d*bead_d_scaler);
+                    cnvs.lineTo(mouse_position.x, mouse_position.y);                    
+                    cnvs.strokeStyle = "#990000";
+                    cnvs.stroke();
+                    }                  
+
+
+                    cnvs.beginPath();
+                    cnvs.arc(mouse_position.x, mouse_position.y,
+                             5.0, 2.0 * Math.PI, false);  
+                    cnvs.strokeStyle = "#990000";
+                    cnvs.stroke();                       
+                }
+            }
+            
+            this.display.paintFront();
+
+            
+        };
+    
+    }
+    
+    function paintCanvas() {
+            
+        // Create gradient
+        var grd = cnvs.createLinearGradient(0,0,0,height);
+        grd.addColorStop(0,"gainsboro");
+        grd.addColorStop(1,"darkgray");
+
+        // Fill background with gradient
+        cnvs.fillStyle = grd;
+        cnvs.fillRect(0,0,width,height);
+        
+        for(var i=0; i<10; i++){
+            fullwave.update(timestep);
+        }
+        fullwave.paint();
+
+    }
+    
+    function touchHandler(event){
+    var touches = event.changedTouches,
+        first = touches[0],
+        type = "";
+         switch(event.type)
+    {
+        case "touchstart": type = "mousedown"; break;
+        case "touchmove":  type="mousemove"; break;        
+        case "touchend":   type="mouseup"; break;
+        default: return;
+    }
+
+             //initMouseEvent(type, canBubble, cancelable, view, clickCount, 
+    //           screenX, screenY, clientX, clientY, ctrlKey, 
+    //           altKey, shiftKey, metaKey, button, relatedTarget);
+
+    var simulatedEvent = document.createEvent("MouseEvent");
+    simulatedEvent.initMouseEvent(type, true, true, window, 1, 
+                              first.screenX, first.screenY, 
+                              first.clientX, first.clientY, false, 
+                              false, false, false, 0/*left*/, null);
+
+                                                                                 first.target.dispatchEvent(simulatedEvent);
+    event.preventDefault();
+}
+
+    function init() {
+    
+        can = document.getElementById("simulation");
+        can.width = width;
+        can.height = height;
+        cnvs = can.getContext("2d");
+    
+        fullwave = new Chain(100,2*margin,height/2,width-4*margin);
+        fullwave.display = new Display(margin,margin,width-2*margin,height-2*margin);
+        
+        
+        can.onmousedown = mouseDown;
+        //document.onkeypress = buttonPress;
+        
+        
+    document.addEventListener("touchstart", touchHandler, true);
+    document.addEventListener("touchmove", touchHandler, true);
+    document.addEventListener("touchend", touchHandler, true);
+    document.addEventListener("touchcancel", touchHandler, true);  
+        
+        setInterval(function(){paintCanvas()}, 20);
+    }
+
+</script>
+
+<body onload="init()">
+  
+<h1>Värähtelevä ketju</h1>
+
+
+<p id="msg">
+Ohjelma simuloi yksinkertaista yksiulotteista ketjua.
+Klikkaamalla ja vetämällä hiirellä minne tahansa ikkunassa voit vetää ketjun
+vasenta päätä, joka on vapaa liikkumaan. Ketjun oikea pää on kiinni paikoillaan.
+Voit muuttaa ketjun oikean puoliskon tiheyttä kaksoisnapautuksella.
+</p>
+
+<canvas id="simulation" width="500" height="300">
+</canvas>
+
+</body> </html>

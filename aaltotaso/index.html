@@ -1,0 +1,1532 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html> <head>
+<title>Värähtelevä taso</title>
+<link rel="icon" href="http://trnm.aalto.fi/figs/aalto_icon.png" type="image/png" />
+
+<link rel="stylesheet" href="applet.css" type="text/css" />
+
+</head>
+
+<script type="text/javascript"
+  src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+
+
+<meta charset="utf-8">
+<script type="text/javascript">
+    
+    var height = 450;
+    var width = 800;
+    var margin = 10;
+
+    var can;
+    var cnvs;
+    
+    var waveplane;
+    var slicer;
+    var timer = new Clock();
+    var memory;
+
+    var bucket = false;
+    var timestep = 0.0;
+    var timeIterations = 1;
+    var speedmode = 2;
+    var omega = 1.0;
+    var damping = 0.1;
+    var damp_margin = 100;
+
+    var FREE_MODE = 0;
+    var FIXED_MODE = 1;
+    var BOUND_MODE = 2;
+    var OSCILLATOR_MODE = 3;
+    var INTERPOLATOR_MODE = 4;
+    var HEAVY_MODE = 5;
+    var LIGHT_MODE = 6;
+    
+    var GRAYSCALE_MODE = 0;
+    var COLOR_MODE = 1;
+    var INTENSITY_MODE = 2;
+    
+    var AMPLITUDE_MODE = 0;
+    var INTENSITY_MODE = 1;
+    
+    var mousemode = OSCILLATOR_MODE;
+    var mousesize = 2;
+    var wavemode = GRAYSCALE_MODE;
+    var slicer_mode = AMPLITUDE_MODE;
+    
+    var mouse_position;
+    var mouse_components;
+    var display_components;
+    
+    
+    var plane_h = 0;
+    var inter_h = 0;
+    var plane_w = 0;
+    var button_l1 = 0;
+    var button_l2 = 0;
+    var button_t1 = 0;
+    var button_t2 = 0;
+    var button_t3 = 0;
+    var button_t4 = 0;
+    var button_t5 = 0;
+    var button_t6 = 0;
+    var button_t7 = 0;
+    
+    function Button(x,y,w,h,image_up,image_down,action) {
+        this.x = x;
+        this.y = y;
+        this.height = h;
+        this.width = w;
+        
+        this.imageup = new Image();
+        this.imageup.src = image_up;
+        //this.imageup.onload = function() {
+        //    cnvs.drawImage(this.imageup,x,y);
+        //};
+        
+        this.imagedown = new Image();
+        this.imagedown.src = image_down;
+        //this.imagedown.onload = function() {
+        //    cnvs.drawImage(this.imagedown,x,y);
+        //};
+        
+        this.action = action;
+        this.pressed = false;
+                
+        this.coordinatesIn = function (x,y) {
+            var mrgn = 0;
+            if(x < this.x+mrgn || x > this.x+this.width-mrgn ||
+               y < this.y+mrgn || y > this.y+this.height-mrgn){
+                return false;
+            }
+            return true;
+        };
+    
+        this.paint = function() {
+            if(this.pressed){
+                cnvs.drawImage(this.imagedown,x,y);
+            } else {
+                cnvs.drawImage(this.imageup,x,y);            
+            }
+        };
+        
+        this.mouseDown = function (x,y) {
+            this.pressed = true;
+            this.action.mouseClick();      
+        }
+
+        this.mouseMove = function (x,y) {
+        }
+        
+        this.mouseUp = function (x,y) {
+            this.pressed = false;
+        }
+    
+    }
+    
+    function Display(x,y,w,h,content) {
+        this.x = x;
+        this.y = y;
+        this.height = h;
+        this.width = w;
+        this.mouse_active = false;
+        this.contents = content;
+    
+        this.paintBack = function () { 
+            cnvs.fillStyle = "#FFFFFF";
+
+            cnvs.beginPath();
+            cnvs.rect(this.x, this.y, this.width, this.height);
+            cnvs.fill();
+        };
+
+        this.paintFront = function () { 
+            cnvs.strokeStyle = "#000000";
+
+            cnvs.beginPath();
+            cnvs.rect(this.x, this.y, this.width, this.height);
+            cnvs.lineWidth = 3;
+            cnvs.stroke();
+        };
+        
+        this.coordinatesIn = function (x,y) {
+            var mrgn = 1;
+            if(x < this.x+mrgn || x > this.x+this.width-mrgn ||
+               y < this.y+mrgn || y > this.y+this.height-mrgn){
+                return false;
+            }
+            return true;
+        };
+        
+        this.relativeCoordinates = function (x,y) {
+            return {
+                x: (x-(this.x))/(this.width),
+                y: (y-(this.y))/(this.height)
+            };
+        };
+        
+        this.paint = function() {
+            this.paintBack();
+            this.contents.paint(this.x,this.y,this.width,this.height);
+            this.paintFront();
+        };
+        
+        this.mouseDown = function (x,y) {
+            var crd = this.relativeCoordinates(x,y);
+            this.contents.mouseClick(crd.x, crd.y);
+        };
+
+        this.mouseMove = function (x,y) {
+            var crd = this.relativeCoordinates(x,y);
+            if(this.coordinatesIn(x,y)){
+                this.contents.mouseDrag(crd.x, crd.y);
+            } else {
+                this.contents.mouseDragOut(crd.x, crd.y);
+            }
+        };
+        
+        this.mouseUp = function (x,y) {
+            var crd = this.relativeCoordinates(x,y);
+            if(this.coordinatesIn(x,y)){
+                this.contents.mouseRelease(crd.x, crd.y);
+            } else {
+                this.contents.mouseReleaseOut(crd.x, crd.y);            
+            }      
+        };
+        
+    }
+    
+    function getMousePos(evt) {
+        var rect = can.getBoundingClientRect();
+        return {
+          x: evt.pageX - rect.left,
+          y: evt.pageY - 170 + 0*rect.top
+        };
+    }
+    
+    function mouseDown(e){
+        mouse_position = getMousePos(e);
+        document.onmousemove = mouseMove;
+        document.onmouseup = mouseUp;
+        for(var i = 0; i<mouse_components.length; i++){
+            if(mouse_components[i].coordinatesIn(mouse_position.x,mouse_position.y)){
+                mouse_components[i].mouseDown(mouse_position.x,mouse_position.y);
+            }     
+        }
+        return false;
+    }
+        
+    function mouseMove(e) {
+        mouse_position = getMousePos(e);        
+        for(var i = 0; i<mouse_components.length; i++){
+            mouse_components[i].mouseMove(mouse_position.x,mouse_position.y);
+        }
+    }
+        
+    function mouseUp(e) {
+        mouse_position = getMousePos(e);
+        document.onmousemove = null;
+        document.onmouseup = null;
+        for(var i = 0; i<mouse_components.length; i++){
+            mouse_components[i].mouseUp(mouse_position.x,mouse_position.y);
+        }
+    }
+    
+    function componentToHex(c) {
+        var hex = c.toString(16);
+        return hex.length == 1 ? "0" + hex : hex;
+    }
+
+    function rgbToHex(r, g, b) {
+        return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+    }
+    
+    function scaleFloatToInt(f, floatrange, intrange) {
+        var minf = floatrange[0];
+        var maxf = floatrange[1];
+        var mini = intrange[0];
+        var maxi = intrange[1];
+        
+        if(f < minf){
+            return mini;
+        } else if(f > maxf){
+            return maxi;
+        } else {
+            return mini + Math.round( (maxi-mini)*(f-minf)/(maxf-minf) );
+        }
+    }
+    
+    function set_speed() {
+    
+        if(speedmode == 0){
+            timestep = 0.0;
+            timeIterations = 1;
+        } else if(speedmode == 1){
+            timestep = 0.1;
+            timeIterations = 1;
+        } else if(speedmode == 2){
+            timestep = 0.1;
+            timeIterations = 3;
+        } else if(speedmode == 3){
+            timestep = 0.15;
+            timeIterations = 5;
+        } else if(speedmode == 4){
+            timestep = 0.2;
+            timeIterations = 6;
+        } else {
+            timestep = 0.2;
+            timeIterations = 10;
+        }
+    }
+    
+    
+    function Clock() {
+        this.time = 0.0;
+        this.angle = 0.0;
+    
+        this.advanceTime = function (dt) {
+            this.time += dt;
+            this.angle += dt*omega;
+            while(this.angle > 2.0*Math.PI){
+                this.angle -= 2.0*Math.PI;
+            }
+        };
+    }
+    
+    function Point() {
+        this.z = 0.0;
+        this.m = 1.0;
+        this.v = 0.0;
+        this.mode = FREE_MODE;
+    }
+    
+    
+    function PlaneMemory(wx,wy) {
+    
+        this.wx = wx;
+        this.wy = wy;
+        this.memory = new Array(20);
+        this.filln = 0;
+        
+        for(var k = 0; k < 20; k++){
+            this.memory[k] = new Array(this.wx);
+            for(var i = 0; i < this.wx; i++){
+                this.memory[k][i] = new Array(this.wy);
+                
+                for(var j = 0; j < this.wy; j++){
+                    this.memory[k][i][j] = FREE_MODE;
+                }
+            }     
+        }
+    
+        this.record = function (points){
+            this.filln++;
+        
+            for(var k = 19; k > 0; k--){
+                for(var i = 0; i < this.wx; i++){
+                    for(var j = 0; j < this.wy; j++){
+        
+                        this.memory[k][i][j] = this.memory[k-1][i][j];
+    
+                    }
+                }
+            }
+        
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+        
+                    this.memory[0][i][j] = points[i][j].mode;
+    
+                }
+            }
+        };
+        
+        
+        this.revert = function (){
+            if(this.filln > 0){
+                for(var i = 0; i < this.wx; i++){
+                    for(var j = 0; j < this.wy; j++){
+        
+                        waveplane.points[i][j].mode = this.memory[0][i][j];
+                        waveplane.changeMass(i,j);
+                    }
+                }
+
+                for(var k = 0; k < this.filln; k++){
+                    for(var i = 0; i < this.wx; i++){
+                        for(var j = 0; j < this.wy; j++){
+        
+                            this.memory[k][i][j] = this.memory[k+1][i][j];
+    
+                        }
+                    }
+                }
+                this.filln--;
+
+            }
+
+        };
+    
+    }
+
+
+    function Plane(wx,wy) {
+    
+        this.wx = wx;
+        this.wy = wy;
+        this.k = 1.0;
+        
+        this.x0 = damp_margin;
+        this.y0 = damp_margin;
+        this.x1 = this.wx-damp_margin;
+        this.y1 = this.wy-damp_margin;
+        
+        this.points = new Array(wx);
+        this.forces = new Array(wx);
+
+        for(var i = 0; i < this.wx; i++){
+            this.points[i] = new Array(wy);
+            this.forces[i] = new Array(wy);
+            for(var j = 0; j < this.wy; j++){
+                this.points[i][j] = new Point();
+                this.forces[i][j] = 0.0;
+            }
+        }
+        
+        this.calculateForces = function () {
+            
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+                
+                    this.forces[i][j] = 0;
+                    //this.forces[i][j] = -4.0*this.points[i][j].z;
+                    if(i > 0){
+                        if(this.points[i-1][j].mode != BOUND_MODE){
+                            this.forces[i][j] += this.points[i-1][j].z-this.points[i][j].z;
+                        }  
+                    }
+                    if(i < this.wx-1){
+                        if(this.points[i+1][j].mode != BOUND_MODE){
+                            this.forces[i][j] += this.points[i+1][j].z-this.points[i][j].z;
+                        }
+                    }
+                    if(j > 0){
+                        if(this.points[i][j-1].mode != BOUND_MODE){
+                            this.forces[i][j] += this.points[i][j-1].z-this.points[i][j].z;
+                        }
+                    }
+                    if(j < this.wy-1){                  
+                        if(this.points[i][j+1].mode != BOUND_MODE){
+                            this.forces[i][j] += this.points[i][j+1].z-this.points[i][j].z;
+                        } 
+                    }
+                    this.forces[i][j] *= this.k;
+                    
+                }
+            }
+
+        };
+                
+        this.calculateForces();
+        
+        this.addDamping = function (damping_border) {
+            
+            var factor = damping/damping_border;
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+                
+                    if(i < damping_border-1){                        
+                        this.points[i][j].z *= 1.0-(damping_border-1-i)*factor;                        
+                    }
+                    if(i > this.wx-damping_border){
+                        this.points[i][j].z *= 1.0-(i-this.wx+damping_border)*factor;   
+                    }
+                    if(j < damping_border-1){
+                        this.points[i][j].z *= 1.0-(damping_border-j)*factor;                        
+                    }
+                    if(j > this.wy-damping_border){
+                        this.points[i][j].z *= 1.0-(j-this.wy+damping_border)*factor;  
+                    }
+                    
+            
+                }
+            }
+            
+        };
+        
+        this.update = function (dt) {
+
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+                
+                    var bit = this.points[i][j];
+                    if(bit.mode == FREE_MODE || 
+                       bit.mode == HEAVY_MODE ||
+                       bit.mode == LIGHT_MODE){
+                        var a = this.forces[i][j]/bit.m;
+                        bit.z += bit.v*dt + 0.5*a*dt*dt;
+                        bit.v += 0.5*a*dt;
+                    } else if(bit.mode == FIXED_MODE || bit.mode == BOUND_MODE){
+                        bit.z = 0.0;
+                    } else if(bit.mode == OSCILLATOR_MODE){
+                        bit.z = Math.sin(timer.angle);
+                    }                    
+                }
+            }
+        
+            this.calculateForces();
+            this.addDamping(damp_margin);
+            
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+                
+                    var bit = this.points[i][j];
+                    if(bit.mode == FREE_MODE || 
+                       bit.mode == HEAVY_MODE ||
+                       bit.mode == LIGHT_MODE){
+                        var a = this.forces[i][j]/bit.m;
+                        bit.v += 0.5*a*dt;
+                    }
+                }
+            }
+            
+            this.addDamping(damp_margin);
+            
+        };
+        
+        this.paint = function (x,y,lx,ly) {
+    
+            var frange = [-1.0,1.0];
+            var frangep = [0.0,0.5];
+            var frange2 = [0.0,0.5];
+            var irange = [0,255];
+            var dx = lx/(this.x1-this.x0);
+            var dy = ly/(this.y1-this.y0);
+                        
+            for(var i = this.x0; i < this.x1; i++){
+                for(var j = this.y0; j < this.y1; j++){
+
+                    var ix = x+(i-this.x0)*dx;
+                    var jy = y+(j-this.y0)*dy;
+
+                    var pointcolor = "#000000";
+                    var mode = this.points[i][j].mode;
+                    if(mode == FREE_MODE){
+                        if(wavemode == GRAYSCALE_MODE){                        
+                            // plot z
+                            var cvalue = scaleFloatToInt(this.points[i][j].z,frange,irange);
+                            pointcolor = rgbToHex( cvalue, cvalue, cvalue );
+                        } else if(wavemode == COLOR_MODE){
+                            // plot z in color
+                            var rvalue = scaleFloatToInt(this.points[i][j].z,frangep,irange);
+                            var bvalue = scaleFloatToInt(-this.points[i][j].z,frangep,irange);
+                            pointcolor = rgbToHex( rvalue, 0, bvalue );
+                        } else if(wavemode == INTENSITY_MODE){
+                            // plot A^2
+                            var cvalue = scaleFloatToInt(this.points[i][j].z*this.points[i][j].z,frange2,irange);
+                            pointcolor = rgbToHex( cvalue, cvalue, cvalue );
+                        }
+                    } else if(mode == HEAVY_MODE){
+                        if(wavemode == GRAYSCALE_MODE){                        
+                            // plot z
+                            var cvalue = scaleFloatToInt(this.points[i][j].z,frange,irange);
+                            pointcolor = rgbToHex( 100+Math.round(cvalue/2), cvalue, cvalue );
+                        } else if(wavemode == COLOR_MODE){
+                            // plot z in color
+                            var rvalue = scaleFloatToInt(this.points[i][j].z,frangep,irange);
+                            var bvalue = scaleFloatToInt(-this.points[i][j].z,frangep,irange);
+                            pointcolor = rgbToHex( rvalue, 0, bvalue );
+                        } else if(wavemode == INTENSITY_MODE){
+                            // plot A^2
+                            var cvalue = scaleFloatToInt(this.points[i][j].z*this.points[i][j].z,frange2,irange);
+                            pointcolor = rgbToHex( cvalue, cvalue, cvalue );
+                        }
+                    } else if(mode == LIGHT_MODE){
+                        if(wavemode == GRAYSCALE_MODE){                        
+                            // plot z
+                            var cvalue = scaleFloatToInt(this.points[i][j].z,frange,irange);
+                            pointcolor = rgbToHex( cvalue, 100+Math.round(cvalue/2), cvalue );
+                        } else if(wavemode == COLOR_MODE){
+                            // plot z in color
+                            var rvalue = scaleFloatToInt(this.points[i][j].z,frangep,irange);
+                            var bvalue = scaleFloatToInt(-this.points[i][j].z,frangep,irange);
+                            pointcolor = rgbToHex( rvalue, 0, bvalue );
+                        } else if(wavemode == INTENSITY_MODE){
+                            // plot A^2
+                            var cvalue = scaleFloatToInt(this.points[i][j].z*this.points[i][j].z,frange2,irange);
+                            pointcolor = rgbToHex( cvalue, cvalue, cvalue );
+                        }                     
+                    } else if(mode == FIXED_MODE){
+                        pointcolor = rgbToHex( 100, 0, 100 );
+                    } else if(mode == BOUND_MODE){
+                        pointcolor = rgbToHex( 150, 0, 150 );
+                    } else if(mode == OSCILLATOR_MODE){
+                        pointcolor = rgbToHex( 0, 100, 0 );
+                    }
+                    cnvs.fillStyle = pointcolor;
+                    
+                    cnvs.beginPath();
+                    cnvs.rect(ix, jy, dx+0.6, dy+0.6);
+                    cnvs.fill();                
+                
+                }
+            }
+            
+            if(slicer.active){
+                
+                cnvs.beginPath();             
+                cnvs.moveTo(slicer.drawx0, slicer.drawy0);
+                cnvs.lineTo(slicer.drawx1, slicer.drawy1);                    
+                cnvs.strokeStyle = "#990000"; 
+                cnvs.fillStyle = "#990000";
+                cnvs.stroke();
+                cnvs.arc(slicer.drawx0, slicer.drawy0, 2.5, 2.0 * Math.PI, false);  
+                cnvs.arc(slicer.drawx1, slicer.drawy1, 2.5, 2.0 * Math.PI, false); 
+                cnvs.fill();               
+
+            } else if(slicer.drawing){
+                cnvs.beginPath();
+                cnvs.arc(slicer.drawx0, slicer.drawy0, 2.5, 2.0 * Math.PI, false);  
+                cnvs.fillStyle = "#990000";
+                cnvs.fill();
+                
+                if(slicer.drawingIn){
+                
+                    cnvs.beginPath();
+                    cnvs.arc(mouse_position.x, mouse_position.y, 2.5, 2.0 * Math.PI, false);  
+                    cnvs.fillStyle = "#990000";
+                    cnvs.fill();
+                
+                    cnvs.beginPath();
+                    cnvs.moveTo(slicer.drawx0, slicer.drawy0);
+                    cnvs.lineTo(mouse_position.x, mouse_position.y);                    
+                    cnvs.strokeStyle = "#990000";
+                    cnvs.stroke();  
+                }
+            }
+            
+        };
+        
+        this.isEmpty = function() {
+            
+            for(var i = 0; i < this.wx; i++){
+                for(var j = 0; j < this.wy; j++){
+                
+                    var bit = this.points[i][j];
+                    if(bit.mode != FREE_MODE){
+                        return false;
+                    }
+                        
+                }
+            }
+
+            return true;
+        
+        };
+        
+        this.wipe = function() {
+            if(this.isEmpty()){
+                
+                for(var i = 0; i < this.wx; i++){
+                    for(var j = 0; j < this.wy; j++){
+                
+                        var bit = this.points[i][j];
+                        bit.v = 0.0;
+                        bit.z = 0.0;
+                        this.forces[i][j] = 0.0;                        
+                        
+                    }
+                }
+
+                slicer.wipe();
+
+            } else {
+                
+                for(var i = 0; i < this.wx; i++){
+                    for(var j = 0; j < this.wy; j++){
+                
+                        var bit = this.points[i][j];
+                        bit.mode = FREE_MODE;
+                        bit.m = 1.0;
+                        
+                    }
+                }
+            }
+        
+        };
+        
+        this.getPointIndices = function(x,y) {
+            
+            return { i:  Math.round(x*(this.x1-this.x0))+damp_margin-1,
+                    j: Math.round(y*(this.y1-this.y0))+damp_margin-1 };
+        };
+        
+        this.getInterpolatedValue = function(ifloat,jfloat) {
+                    
+            var ifloor = Math.floor(ifloat);
+            var iceil = Math.ceil(ifloat);
+            var jfloor = Math.floor(jfloat);
+            var jceil = Math.ceil(jfloat);
+            if(iceil == ifloor){
+                iceil = ifloor+1;
+            }
+            if(jceil == jfloor){
+                jceil = jfloor+1;
+            }
+
+            //document.getElementById("msg").innerHTML = ifloat+" "+jfloat+" "+ifloor+" "+jfloor+" ";
+
+
+            var valff = this.points[ifloor][jfloor].z;
+            var valfc = this.points[ifloor][jceil].z;
+            var valcf = this.points[iceil][jfloor].z;
+            var valcc = this.points[iceil][jceil].z;
+            
+            
+            return valff*(iceil-ifloat)*(jceil-jfloat) +
+                    valfc*(iceil-ifloat)*(jfloat-jfloor) +
+                    valcf*(ifloat-ifloor)*(jceil-jfloat) +
+                    valcc*(ifloat-ifloor)*(jfloat-jfloor);
+        
+        };
+        
+        this.changeMass = function(i,j) {
+        
+            var oldmass = this.points[i][j].m;
+            if(this.points[i][j].mode == FREE_MODE){
+                this.points[i][j].m = 1.0;
+            } else if(this.points[i][j].mode == HEAVY_MODE){
+                this.points[i][j].m = 3.0;
+            } else if(this.points[i][j].mode == LIGHT_MODE){
+                this.points[i][j].m = 0.3;
+            }
+            var newmass = this.points[i][j].m;
+            
+            this.points[i][j].v *= Math.sqrt(oldmass/newmass);
+        
+        }
+        
+        this.recursiveFill = function(i,j,areamode,fillmode) {
+            if(this.points[i][j].mode != areamode && areamode != fillmode){
+                return false;
+            } else {
+                this.points[i][j].mode = fillmode;
+                this.changeMass(i,j);
+                
+                if(i > 0){             
+                    this.recursiveFill(i-1,j,areamode,fillmode);
+                }
+                if(i < this.wx-1){
+                    this.recursiveFill(i+1,j,areamode,fillmode);    
+                }
+                if(j > 0){
+                    this.recursiveFill(i,j-1,areamode,fillmode);
+                }
+                if(j < this.wy-1){
+                    this.recursiveFill(i,j+1,areamode,fillmode);    
+                }                
+            }
+        
+        };
+        
+        this.fillEdges = function() {
+        
+            var edgemode = FREE_MODE;
+            for(var i = this.x0; i < this.x1; i++){
+                edgemode = this.points[i][this.y0].mode;
+
+                for(var j=0; j < this.y0; j++){
+                    this.points[i][j].mode = edgemode;
+                    this.changeMass(i,j);
+                }
+                
+                edgemode = this.points[i][this.y1-1].mode;
+                
+                for(var j=this.y1; j < this.wy; j++){
+                    this.points[i][j].mode = edgemode;
+                    this.changeMass(i,j);
+                }
+
+            }
+            
+            for(var j = 0; j < this.wy; j++){
+                edgemode = this.points[this.x0][j].mode;
+                
+                for(var i=0; i < this.x0; i++){
+                    this.points[i][j].mode = edgemode;                
+                    this.changeMass(i,j);
+                }
+
+                edgemode = this.points[this.x1-1][j].mode;
+                
+                for(var i=this.x1; i < this.wx; i++){
+                    this.points[i][j].mode = edgemode;                
+                    this.changeMass(i,j);
+                }            
+            }
+        
+        };
+        
+        this.draw = function(x,y) {
+            if(bucket){
+                return false;
+            }
+            if(mousesize == 1){
+                var ind = this.getPointIndices(x,y);
+                this.points[ind.i][ind.j].mode = mousemode;
+                this.changeMass(ind.i,ind.j);
+            } else if(mousesize == 2){
+                var ind = this.getPointIndices(x,y);
+                for(var i=-1; i<2; i++){
+                    for(var j=-1; j<2; j++){
+                        try{
+                            this.points[ind.i+i][ind.j+j].mode = mousemode;
+                            this.changeMass(ind.i+i,ind.j+j);               
+                        } catch(err) {
+                        
+                        }
+                    }
+                }
+            } else if(mousesize == 3){     
+                var ind = this.getPointIndices(x,y);
+                for(var i=-3; i<4; i++){
+                    for(var j=-3; j<4; j++){
+                        try{
+                            this.points[ind.i+i][ind.j+j].mode = mousemode;
+                            this.changeMass(ind.i+i,ind.j+j);               
+                        } catch(err) {
+                        
+                        }
+                    }
+                }
+                /*
+                bucket = true;
+                this.recursiveFill(ind.i, ind.j, 
+                    this.points[ind.i][ind.j].mode,mousemode);                
+                bucket = false;
+                */
+            }
+        };
+        
+        this.mouseClick = function(x,y) {            
+            memory.record(this.points);
+            if(mousemode != INTERPOLATOR_MODE){
+                this.draw(x,y);
+            } else {
+                slicer.startDrawing(x,y);
+            }
+        };
+        
+        this.mouseDrag = function(x,y) {
+            if(mousemode != INTERPOLATOR_MODE){
+                this.draw(x,y);
+            } else {
+                slicer.dragDrawing(x,y);           
+            }
+        };
+        
+        this.mouseDragOut = function(x,y) {
+            if(mousemode != INTERPOLATOR_MODE){
+            } else {
+                slicer.dragDrawingOut(x,y);           
+            }
+        };
+        
+        this.mouseRelease = function(x,y) {
+            if(mousemode != INTERPOLATOR_MODE){
+                this.fillEdges();
+            } else {
+                slicer.finishDrawing(x,y);         
+            }
+        
+        };
+        
+        this.mouseReleaseOut = function(x,y) {
+            if(mousemode != INTERPOLATOR_MODE){
+                //this.fillEdges();                
+            } else {
+                slicer.finishDrawingOut(x,y);          
+            }
+        
+        };
+    
+    }
+    
+    function Interpolator(x0,y0,x1,y1) {
+    
+        this.x0 = x0;
+        this.x1 = x1;
+        this.y0 = y0;
+        this.y1 = y1;
+        this.length = 100;
+        this.curve = new Array(this.length);
+        
+        this.x0temp = 0;
+        this.y0temp = 0;
+        this.drawx0 = 0.0;
+        this.drawy0 = 0.0;
+        this.drawx1 = 0.0;
+        this.drawy1 = 0.0;
+
+        this.drawing = false;
+        this.drawingIn = false;
+        this.active = false;
+        
+        for(var k = 0; k < this.length; k++){
+            this.curve[k] = 0.0;
+        }
+        
+        this.pointCoordinates = function(i){
+            return { 
+                x: this.x0 + i*(this.x1-this.x0)/(this.length-1),
+                y: this.y0 + i*(this.y1-this.y0)/(this.length-1)             
+            };
+        };
+        
+        this.wipe = function(){
+        
+            for(var k = 0; k < this.length; k++){
+                this.curve[k] = 0.0;
+            }
+        };
+        
+        this.update = function(){
+
+            if(slicer_mode == AMPLITUDE_MODE){           
+
+                for(var k = 0; k < this.length; k++){
+                                
+                    var pt = this.pointCoordinates(k);
+                    this.curve[k] = waveplane.getInterpolatedValue(pt.x,pt.y);
+
+                }
+                
+            } else {
+            
+                for(var k = 0; k < this.length; k++){
+                                
+                    var pt = this.pointCoordinates(k);
+                    var amp = waveplane.getInterpolatedValue(pt.x,pt.y);
+                    this.curve[k] *= 0.99;
+                    this.curve[k] += amp*amp*0.05;
+
+                }
+            
+            }
+            
+        };
+        
+        this.paint = function(x,y,lx,ly){
+            
+            if(this.active){
+                var dx = lx/(this.length-1);
+            
+            
+                if(slicer_mode == AMPLITUDE_MODE){
+                    cnvs.beginPath();             
+                    cnvs.moveTo(x, y+0.5*ly);
+                    cnvs.lineTo(x+lx,y+0.5*ly);                    
+                    cnvs.strokeStyle = "#000000";
+                    cnvs.lineWidth = 2;
+                    cnvs.stroke();
+                    cnvs.lineWidth = 3;
+                }
+            
+                for(var k = 0; k < this.length; k++){
+                
+                    var xx = x+k*dx;
+                    var yy = y+(slicer_mode+1)*0.5*ly-ly/3*this.curve[k];
+                               
+                    if(yy < y+ly && yy > y){
+                        cnvs.beginPath();
+                        cnvs.arc(xx, yy, 2.0, 2.0 * Math.PI, false);  
+                        cnvs.fillStyle = "#990000";
+                        cnvs.fill();
+                    }
+                }
+            } 
+
+        };
+    
+        this.startDrawing = function(x,y){
+            var p0 = waveplane.getPointIndices(x,y);
+            this.x0temp = p0.i;
+            this.y0temp = p0.j;
+            this.drawx0 = mouse_position.x;
+            this.drawy0 = mouse_position.y;
+            this.drawing = true;
+            this.drawingIn = true;
+            this.active = false;
+        };
+        
+        this.dragDrawing = function(x,y){   
+            this.drawingIn = true;
+        };
+
+        this.dragDrawingOut = function(x,y){
+            this.drawingIn = false;
+        };
+        
+        this.finishDrawing = function(x,y){
+            this.drawing = false;
+            this.drawingIn = false;
+            this.x0 = this.x0temp;
+            this.y0 = this.y0temp;
+            p0 = waveplane.getPointIndices(x,y);
+            this.x1 = p0.i;
+            this.y1 = p0.j;
+            this.drawx1 = mouse_position.x;
+            this.drawy1 = mouse_position.y;
+            this.active = true;
+        };
+        
+        this.finishDrawingOut = function(x,y){
+            this.drawing = false;
+            this.drawingIn = false;
+        };
+    
+    }
+    
+    function SpeedUp() {
+        this.mouseClick = function() {
+            speedmode += 1;
+            if(speedmode > 5){
+                speedmode = 5;
+            }
+            set_speed();
+        };
+    }
+    
+    function SpeedDown() {
+        this.mouseClick = function() {
+            speedmode -= 1;
+            if(speedmode < 0){
+                speedmode = 0;
+            }
+            set_speed();
+        };
+    }
+
+    function FrequencyUp() {
+        this.mouseClick = function() {
+            omega *= 1.1;
+        };
+    }
+
+    function FrequencyDown() {
+        this.mouseClick = function() {
+            omega /= 1.1;
+        };
+    }
+
+    function ToggleColor() {
+        this.mouseClick = function() {
+            wavemode++;
+            if(wavemode > 1){
+                wavemode = 0;
+            }
+        };    
+    }
+
+
+    function DrawNormal() {
+        this.mouseClick = function() {
+            mousemode = FREE_MODE;
+        };
+    }
+
+    function DrawHeavy() {
+        this.mouseClick = function() {
+            mousemode = HEAVY_MODE;
+        };
+    }
+
+    function DrawLight() {
+        this.mouseClick = function() {
+            mousemode = LIGHT_MODE;
+        };
+    }
+
+    function DrawSource() {
+        this.mouseClick = function() {
+            mousemode = OSCILLATOR_MODE;
+        };
+    }
+
+    function DrawFixedWall() {
+        this.mouseClick = function() {
+            mousemode = FIXED_MODE;
+        };
+    }
+
+    function DrawFreeWall() {
+        this.mouseClick = function() {
+            mousemode = BOUND_MODE;
+        };
+    }
+
+    function DrawInterpolatorA() {
+        this.mouseClick = function() {
+            mousemode = INTERPOLATOR_MODE;
+            slicer_mode = AMPLITUDE_MODE;
+            slicer.wipe();
+        };
+    }
+
+    function DrawInterpolatorI() {
+        this.mouseClick = function() {
+            mousemode = INTERPOLATOR_MODE;
+            slicer_mode = INTENSITY_MODE;
+            slicer.wipe();
+        };
+    }
+
+    
+    function Undo() {        
+        this.mouseClick = function() {
+            memory.revert();
+        };
+    }
+    
+    function Wipe() {        
+        this.mouseClick = function() {
+            memory.record(waveplane.points);
+            waveplane.wipe();            
+        };
+    }
+    
+    function TogglePaintSize() {        
+        this.mouseClick = function() {
+            mousesize++;
+            if(mousesize > 3){
+                mousesize = 1;
+            }
+        };
+    }
+        
+    
+    function paintCanvas() {
+            
+        if(bucket){
+            return false;
+        }
+            
+        // Create gradient
+        var grd = cnvs.createLinearGradient(0,0,0,height);
+        grd.addColorStop(0,"gainsboro");
+        grd.addColorStop(1,"darkgray");
+
+        // Fill background with gradient
+        cnvs.fillStyle = grd;
+        cnvs.fillRect(0,0,width,height);
+        
+        for(var i=0; i<this.timeIterations; i++){
+            timer.advanceTime(this.timestep);
+            waveplane.update(this.timestep);
+            slicer.update();
+        }
+        
+        for(var i = 0; i < this.display_components.length; i++){
+            this.display_components[i].paint();   
+        }
+        
+        var box_x = 0;
+        var box_y = 0;
+        if(mousemode == FREE_MODE){
+            box_x = button_l1;
+            box_y = button_t2;
+        } else if(mousemode == OSCILLATOR_MODE){
+            box_x = button_l2;
+            box_y = button_t2;        
+        } else if(mousemode == FIXED_MODE){
+            box_x = button_l1;
+            box_y = button_t3;        
+        } else if(mousemode == BOUND_MODE){
+            box_x = button_l2;
+            box_y = button_t3;        
+        } else if(mousemode == HEAVY_MODE){
+            box_x = button_l1;
+            box_y = button_t4;        
+        } else if(mousemode == LIGHT_MODE){
+            box_x = button_l2;
+            box_y = button_t4;        
+        } else if(mousemode == INTERPOLATOR_MODE){
+            if(slicer_mode == AMPLITUDE_MODE){
+                box_x = button_l1;
+                box_y = button_t5;        
+           } else {
+                box_x = button_l2;
+                box_y = button_t5;        
+            }
+        }
+        cnvs.beginPath();
+        cnvs.strokeStyle = "#606060";
+        cnvs.rect(box_x-1,box_y-1,48,48);
+        cnvs.stroke();
+        cnvs.beginPath();
+        cnvs.strokeStyle = "#D0D0D0";
+        cnvs.rect(box_x+1,box_y+1,48,48);
+        cnvs.stroke();
+        cnvs.beginPath();
+        cnvs.strokeStyle = "909090";
+        cnvs.rect(box_x,box_y,48,48);
+        cnvs.stroke();
+        
+        cnvs.font = "12px Futura";
+        cnvs.fillStyle = "#606060";
+        cnvs.fillText("@thynnine 2014",width-121,height-margin-1);      
+        cnvs.fillStyle = "#D0D0D0";
+        cnvs.fillText("@thynnine 2014",width-119,height-margin+1);      
+        cnvs.fillStyle = "909090"; //A9A9A9
+        cnvs.fillText("@thynnine 2014",width-120,height-margin);      
+    }
+    
+    function touchHandler(event){
+        var touches = event.changedTouches,
+            first = touches[0],
+            type = "";
+            switch(event.type){
+                case "touchstart": type = "mousedown"; break;
+                case "touchmove":  type="mousemove"; break;        
+                case "touchend":   type="mouseup"; break;
+                default: return;
+            }
+
+             //initMouseEvent(type, canBubble, cancelable, view, clickCount, 
+            //           screenX, screenY, clientX, clientY, ctrlKey, 
+            //           altKey, shiftKey, metaKey, button, relatedTarget);
+
+            var simulatedEvent = document.createEvent("MouseEvent");
+            simulatedEvent.initMouseEvent(type, true, true, window, 1, 
+                              first.screenX, first.screenY, 
+                              first.clientX, first.clientY, false, 
+                              false, false, false, 0/*left*/, null);
+
+            first.target.dispatchEvent(simulatedEvent);
+            event.preventDefault();
+    }
+
+    function init() {
+    
+        can = document.getElementById("simulation");
+        can.width = width;
+        can.height = height;
+        cnvs = can.getContext("2d");
+        
+        set_speed();
+        
+        plane_h = height*0.8-3*margin;
+        inter_h = height*0.2;
+        plane_w = (height*0.8-3*margin)*2.0;//1.6667;
+        button_l1 = plane_w+2*margin;
+        button_l2 = plane_w+3*margin+48;
+        button_t1 = margin;
+        button_t2 = 2*margin+48;
+        button_t3 = 3*margin+2*48;
+        button_t4 = 4*margin+3*48;
+        button_t5 = 5*margin+4*48;
+        button_t6 = 6*margin+5*48;
+        button_t7 = 7*margin+6*48;
+        
+        waveplane = new Plane(16*16+2*damp_margin,8*16+2*damp_margin);
+        var wavedisplay = new Display(margin,margin,plane_w,plane_h,
+                                 waveplane );
+        memory = new PlaneMemory(16*16+2*damp_margin,8*16+2*damp_margin);
+                
+        
+        slicer = new Interpolator(100+damp_margin,0,100+damp_margin,60+damp_margin);
+        var slicedisplay = new Display(margin,height*0.8-margin,plane_w,inter_h,
+                                slicer);
+        
+        
+        var speedup_button = new Button(button_l1,button_t1,
+            48,24,"figs/speed_up_top_48px.png","figs/speed_down_top_48px.png",
+            new SpeedUp());
+        var speeddown_button = new Button(button_l1,button_t1+24,
+            48,24,"figs/speed_up_bottom_48px.png","figs/speed_down_bottom_48px.png",
+            new SpeedDown());
+        var frequp_button = new Button(button_l2,button_t1,
+            48,24,"figs/frequency_up_top_48px.png","figs/frequency_down_top_48px.png",
+            new FrequencyUp());
+        var freqdown_button = new Button(button_l2,button_t1+24,
+            48,24,"figs/frequency_up_bottom_48px.png","figs/frequency_down_bottom_48px.png",
+            new FrequencyDown());
+            
+        var drawnormal_button = new Button(button_l1,button_t2,
+            48,48,"figs/normal_up_48px.png","figs/normal_down_48px.png",
+            new DrawNormal());
+        var drawsource_button = new Button(button_l2,button_t2,
+            48,48,"figs/source_up_48px.png","figs/source_down_48px.png",
+            new DrawSource());
+            
+        var drawfixed_button = new Button(button_l1,button_t3,
+            48,48,"figs/fixed_up_48px.png","figs/fixed_down_48px.png",
+            new DrawFixedWall());
+        var drawfree_button = new Button(button_l2,button_t3,
+            48,48,"figs/free_up_48px.png","figs/free_down_48px.png",
+            new DrawFreeWall());
+            
+        var drawheavy_button = new Button(button_l1,button_t4,
+            48,48,"figs/heavy_up_48px.png","figs/heavy_down_48px.png",
+            new DrawHeavy());
+        var drawlight_button = new Button(button_l2,button_t4,
+            48,48,"figs/light_up_48px.png","figs/light_down_48px.png",
+            new DrawLight());
+            
+        var drawinterpolator_button = new Button(button_l1,button_t5,
+            48,48,"figs/inter_wave_up_48px.png","figs/inter_wave_down_48px.png",
+            new DrawInterpolatorA());
+        var drawinterpolatorI_button = new Button(button_l2,button_t5,
+            48,48,"figs/inter_intensity_up_48px.png","figs/inter_intensity_down_48px.png",
+            new DrawInterpolatorI());
+                    
+        var drawsize_button = new Button(button_l1,button_t6,
+            48,48,"figs/size_up_48px.png","figs/size_down_48px.png",
+            new TogglePaintSize());            
+        var color_button = new Button(button_l2,button_t6,
+            48,48,"figs/color_up_48px.png","figs/color_down_48px.png",
+            new ToggleColor());
+            
+        var wipe_button = new Button(button_l1,button_t7,
+            48,48,"figs/wipe_up_48px.png","figs/wipe_down_48px.png",
+            new Wipe());
+        var undo_button = new Button(button_l2,button_t7,
+            48,48,"figs/undo_up_48px.png","figs/undo_down_48px.png",
+            new Undo());
+            
+        mouse_components = new Array(17);
+        display_components = new Array(18);
+
+        mouse_components[0] = wavedisplay;
+        mouse_components[1] = speedup_button;
+        mouse_components[2] = speeddown_button;
+        mouse_components[3] = frequp_button;
+        mouse_components[4] = freqdown_button;
+        mouse_components[5] = wipe_button;
+        mouse_components[6] = undo_button;
+        mouse_components[7] = drawnormal_button;
+        mouse_components[8] = drawsource_button;
+        mouse_components[9] = drawfixed_button;
+        mouse_components[10] = drawfree_button;
+        mouse_components[11] = drawinterpolator_button;
+        mouse_components[12] = drawinterpolatorI_button;
+        mouse_components[13] = drawheavy_button;
+        mouse_components[14] = drawlight_button;
+        mouse_components[15] = drawsize_button;
+        mouse_components[16] = color_button;
+
+        display_components[0] = wavedisplay;        
+        display_components[1] = speedup_button;     
+        display_components[2] = speeddown_button;
+        display_components[3] = frequp_button;
+        display_components[4] = freqdown_button;
+        display_components[5] = wipe_button;
+        display_components[6] = undo_button;
+        display_components[7] = slicedisplay;
+        display_components[8] = drawnormal_button;
+        display_components[9] = drawsource_button;
+        display_components[10] = drawfixed_button;
+        display_components[11] = drawfree_button;
+        display_components[12] = drawinterpolator_button;
+        display_components[13] = drawinterpolatorI_button;
+        display_components[14] = drawheavy_button;
+        display_components[15] = drawlight_button;
+        display_components[16] = drawsize_button;
+        display_components[17] = color_button;
+                    
+        can.onmousedown = mouseDown;
+        
+        document.addEventListener("touchstart", touchHandler, true);
+        document.addEventListener("touchmove", touchHandler, true);
+        document.addEventListener("touchend", touchHandler, true);
+        document.addEventListener("touchcancel", touchHandler, true); 
+            
+        setInterval(function(){paintCanvas()}, 25);
+    }
+
+</script>
+
+<body onload="init()">
+  
+<h1>Värähtelevä taso</h1>
+
+
+<p id="msg">Tällä ohjelmalla voit tutkia aaltojen dynamiikkaa tasossa.
+Simulaatio toimii yksinkertaisen piirto-ohjelman tavoin. Tasoon voi hiirellä piirtää
+värähteleviä aaltolähteitä, seiniä sekä eri taitekertoimisia alueita. Simulaation nopeutta
+ja esitystä voi myös muuttaa.
+</p>
+
+<canvas id="simulation" width="500" height="300">
+</canvas>
+
+
+
+<h2>Ohje</h2>
+Ohjelma koostuu kahdesta ikkunasta sekä joukosta nappeja. Suurempi ikkuna
+kuvaa simuloitua systeemiä ja siihen voi piirtää elementtejä (simulaatioikkuna).
+Systeemistä voi ottaa myös läpileikkauksen halutulla suoralla, ja tämä piirretään
+pienempään ikkunaan (leikkausikkuna).
+<table id="control">
+  <tr><td>
+    <img src="figs/speed_up_top_48px.png" width="48">
+    </td>
+    <td>
+    Nopeuttaa simulaatiota (animaatiota).
+  </td></tr>
+  <tr><td>
+    <img src="figs/speed_up_bottom_48px.png" width="48">
+    </td>
+    <td>
+    Hidastaa simulaatiota (animaatiota).
+  </td></tr>
+  <tr><td>
+    <img src="figs/frequency_up_top_48px.png" width="48">
+    </td>
+    <td>
+    Nostaa värähtelijöiden kulmataajuutta.
+  </td></tr>
+  <tr><td>
+    <img src="figs/frequency_up_bottom_48px.png" width="48">
+    </td>
+    <td>
+    Laskee värähtelijöiden kulmataajuutta.
+  </td></tr>
+  <tr><td>
+    <img src="figs/normal_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: normaali värähtelevä taso.
+  </td></tr>
+  <tr><td>
+    <img src="figs/source_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: aaltolähde.
+  </td></tr>
+  <tr><td>
+    <img src="figs/fixed_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: seinä, johon taso on kiinnitetty (reunaehtona \(z = 0\)).
+  </td></tr>
+  <tr><td>
+    <img src="figs/free_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: seinä, johon taso ei ole kiinnitetty.
+  </td></tr>
+  <tr><td>
+    <img src="figs/heavy_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: värähtelevä taso, jossa taitekerroin \(n > 1\) (tiheä aine).
+  </td></tr>
+  <tr><td>
+    <img src="figs/light_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: värähtelevä taso, jossa taitekerroin \(n < 1\) (harva aine).
+  </td></tr>
+  <tr><td>
+    <img src="figs/inter_wave_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: leikkausviiva värähtelyn \( z(t) \) mittaamiseksi. Piirrä viiva 
+    simulaatioikkunaan hiirellä vetäen, jolloin poikkileikkaus aalloista ilmestyy
+    leikkausikkunaan.
+  </td></tr>
+  <tr><td>
+    <img src="figs/inter_intensity_up_48px.png" width="48">
+    </td>
+    <td>
+    Piirtotila: leikkausviiva intensiteetin \( \int z^2 dt \) mittaamiseksi.
+  </td></tr>
+  <tr><td>
+    <img src="figs/size_up_48px.png" width="48">
+    </td>
+    <td>
+    Muuta kynän kokoa. Vaihtoehtoina \(  1, 3\times 3, 7 \times 7 \) pikseliä.
+  </td></tr>
+  <tr><td>
+    <img src="figs/color_up_48px.png" width="48">
+    </td>
+    <td>
+    Muuta väritystä: vaihtoehtoina on harmaan sävyt (aaltojen harjat kuvataan vaaleana) tai sinipunainen (harjat kuvataan punaisella, pohjat sinisellä).
+  </td></tr>
+  <tr><td>
+    <img src="figs/wipe_up_48px.png" width="48">
+    </td>
+    <td>
+    Tyhjennä taso piirretyistä elementeistä. Jos taso on jo tyhjä, myös aallot poistetaan.
+  </td></tr>
+  <tr><td>
+    <img src="figs/undo_up_48px.png" width="48">
+    </td>
+    <td>
+    Peruuta viimeisin piirto.
+  </td></tr>
+</table>
+
+
+<h2>Mielenkiintoisia kokeita</h2>
+
+<p>
+<b>Seisovat aallot</b>
+Luo aaltolähde ja seinä, joka on kohtisuorassa siihen saapuvia aaltoja vastaan. 
+Millaista värähtely on aallon ja seinän välillä? Mitä taajuuden muuttaminen vaikuttaa?
+</p>
+
+<p>
+<b>Väliaine</b>
+Luo aaltolähde ja alue, jossa taitekerroin on suuri. Miten aallot käyttäytyvät
+kohdatessaan aineiden rajapinnan? Tapahtuuko heijastumista tai läpäisyä? Säilyykö
+aaltojen vaihe, taajuus, nopeus tai aallonpituus? Voit tutkia aaltopulsseja jatkuvan
+värähtelyn sijaan ensin luomalla lähteen ja hetken päästä jälleen poistamalla sen.
+Mitä tapahtuu jos luotkin alueen, jossa taitekerroin on pieni?
+</p>
+
+
+<p>
+<b>Taittuminen</b>
+Luo jälleen aaltolähde ja alue, jossa taitekerroin muuttuu. Tee nyt lähteestä viiva esim.
+45 asteen kulmassa taittavaan rajapintaan nähden. Kuinka aaltojen suunta muuttuu rajapinnalla?
+</p>
+
+
+<p>
+<b>Linssi</b>
+Luo viivamainen aaltolähde ja linssin muotoinen alue, jossa taitekerroin muuttuu. Kuinka
+aallot käyttäytyvät kuljettuaan linssin läpi? Pystytkö keskittämään aallot tiettyyn pisteeseen? 
+Miten linssin muoto ja taitekerroin vaikuttavat?
+</p>
+
+
+<p>
+<b>Interferenssi</b>
+Luo kaksi pistemäistä lähdettä. Huomannet lähteistä etenevien aaltojen sekoittuvan.
+Millainen kuvio tästä syntyy? Jos mittaat värähtelyä tai intensiteettiä kaukana lähteistä,
+millainen intensiteettikuvio syntyy? Löydätkö suuntia, joihin aaltoja ei kulje lainkaan?
+Tarkastele amplitudia suunnissa, joihin etenee voimakkaimmat aallot. Kuinka amplitudi suhtautuu
+tapaukseen, jossa vain yksi lähde lähettää ympyräaaltoa?
+
+Luo seuraavaksi aaltolähde sekä seinä, jossa on kaksi pientä aukkoa. Muuttuuko tilanne verrattuna
+systeemin, jossa on kaksi lähdettä?
+</p>
+
+
+
+<p>
+<b>Diffraktio</b>
+Luo viivamainen aaltolähde, jonka pituus on joitain aallonpituuksia. Tarkastele syntyvää
+aaltoa kaukana lähteestä. Onko aalto tasainen tasoaalto vai syntyykö amplitudiin eroja? 
+Leviääkö aalto sivuille?
+
+Voit myös luoda aaltolähteen ja seinän, jossa on yksi leveä aukko. Muuttuuko tilanne?
+</p>
+
+
+</body> </html>
+
+
