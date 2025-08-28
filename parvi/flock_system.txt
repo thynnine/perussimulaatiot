@@ -1,0 +1,22 @@
+<prey>
+count: 50
+speed: 0.5
+</prey>
+
+<predator>
+count: 2
+speed: 0.8
+</predator>
+
+<sky>
+dimension: 2
+size: 15
+</sky>
+
+<time>
+total: 200.0
+dt: 0.2
+recording-dt: 1.0
+</time>
+
+
