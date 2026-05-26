@@ -168,7 +168,7 @@ def simuloi():
     ax_p.legend()
 
 
-    time_text = ax2.text(-0.49*L, -0.9*psimax, f't ={0:6.0f} fs', fontsize=10, color='black')
+    time_text = ax2.text(-0.49*L, -0.9*psimax, '', fontsize=10, color='black')
     
 
     # animaatio
@@ -274,7 +274,7 @@ def simuloi():
 
     print("simuloidaan ja piirretään samalla animaatio")
     ani = animation.FuncAnimation(
-        fig, animate, init_func=init, frames=tsteps, interval=20, blit=True
+        fig, animate, init_func=init, frames=tsteps, interval=20, blit=False, repeat=False
     )
 
     if par.TALLENNA_ANIMAATIO:

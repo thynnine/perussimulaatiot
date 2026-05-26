@@ -50,4 +50,4 @@ for i in range( len(taajuudet) ):
 aani *= np.exp( -( t - kesto/2 )**2 / (0.2*kesto)**2 )
 
 # tallennetaan ääni
-scipy.io.wavfile.write("synteettinen_aani.wav", bps, aani)
+scipy.io.wavfile.write("synteettinen_aani.wav", bps, (5000*aani).astype(np.int16))
